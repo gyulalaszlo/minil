@@ -1,7 +1,7 @@
 pegjs   = require("pegjs");
 program = require("commander");
 fs      = require("fs");
-T       = require("tcomb");
+t       = require("tcomb");
 
 program
     .version("0.0.5")
@@ -44,37 +44,74 @@ function compile_files(parser, fileList) {
 
 }
 
-const CHAR_NAME_MAP = [
-
-  [/\+/g, " Plus "],
-  [/^-$/g, " Minus "],
-  //[/-/g, '_'],
-  [/=/g, " Equal "],
-  [/[^a-zA-Z0-9_\$\.]+/g, " "]
-];
-
-function camelize(str) {
-  let renamed = CHAR_NAME_MAP.reduce(function(built, [rx, renameTo]) {
-    return built.replace(rx, renameTo);
-  }, str);
-
-  let words = renamed.split(/ +/g);
-  //let words = renamed.split(/[^a-zA-Z0-9\$\.]+/g);
-  return words.slice(0, 1).concat(words.slice(1)
-                                       .map(v => v.substr(0, 1).toUpperCase() +
-                                           v.substr(1)))
-              .join("");
-
-  //return CameCased.substr(0,1).toLowerCase() + CameCased.substr(1);
-  //return str.replace(/[^a-zA-Z0-9_\.]+/, " ")
-  //          .replace(/(?:^\w|[A-Z]|\b\w)/g, function(letter, index) {
-  //            return index === 0 ? letter.toLowerCase() :
-  // letter.toUpperCase(); }) .replace(/\s+/g, "");
+// puts `what` between the elements of `seq`
+function interpose(what, seq) {
+  let o    = [], len = seq.length;
+  o.length = len * 2 - 1;
+  for (let i = 0; i < len; ++i) {
+    o[i * 2] = seq[i];
+    if (i + 1 < len) { o[i * 2 + 1] = what; }
+  }
+  return o;
 }
+
+// returns the contents of seq grouped into n-tuples
+function groupsOf(n, seq, includeIncomplete = true) {
+  let o           = [], len = seq.length;
+  let preferedLen = (includeIncomplete ? Math.floor : Math.ceil)(seq.length /
+      n);
+
+  o.length = preferedLen;
+
+  for (let i = 0; i < preferedLen; ++i) {
+    let g = [];
+    o[i]  = g;
+
+    for (let j = 0; j < n; ++j) {
+      let seqIdx = i * n + j;
+      // stop if over the end
+      if (seqIdx >= len) {
+        break;
+      }
+      g.push(seq[seqIdx]);
+    }
+  }
+
+  return o;
+}
+
+// Helper for camel-casing an identifier
+const camelize = (function() {
+
+  const CHAR_NAME_MAP = [
+
+    [/\+/g, " Plus "],
+    [/^-$/g, " Minus "],
+    //[/-/g, '_'],
+    [/=/g, " Equal "],
+    [/[^a-zA-Z0-9_\$\.]+/g, " "]
+  ];
+
+  function camelizeWord(str) {
+    return str.substr(0, 1).toUpperCase() + str.substr(1);
+  }
+
+  function camelize(str) {
+    let renamed = CHAR_NAME_MAP.reduce(function(built, [rx, renameTo]) {
+      return built.replace(rx, renameTo);
+    }, str);
+
+    let words      = renamed.split(/ +/g);
+    let fromSecond = words.slice(1).map(camelizeWord);
+    return words.slice(0, 1).concat(fromSecond).join("");
+  }
+
+  return camelize;
+}());
 
 function tupleBuilderTypes(baseName, stepTypeExtensions, stepFns) {
 
-  let steps                 = [T.struct({}, `${baseName}/0`)];
+  let steps                 = [t.struct({}, `${baseName}/0`)];
   steps[0].prototype.append = stepFns[0];
   let last                  = stepFns.reduce(function(previousType, stepFn, i) {
     let extensionsThisRound      = stepTypeExtensions[i];
@@ -93,39 +130,39 @@ function tupleBuilderTypes(baseName, stepTypeExtensions, stepFns) {
 
 // # Types
 
-let Token = T.struct({
-                       $type : T.String,
-                       $value: T.Any
+let Token = t.struct({
+                       $type : t.String,
+                       $value: t.Any
                      }, "Token");
 
 function tokenType(token) { return Token(token).$type; }
 
 function tokenValue(token) { return Token(token).$value; }
 
-let TokenList     = T.list(Token);
-let SequenceToken = T.refinement(Token, t => TokenList.is(t.$value),
+let TokenList     = t.list(Token);
+let SequenceToken = t.refinement(Token, t => TokenList.is(t.$value),
                                  "SequenceToken");
-let ParenToken    = T.refinement(SequenceToken, t => t.$type === "paren",
+let ParenToken    = t.refinement(SequenceToken, t => t.$type === "paren",
                                  "ParenToken");
-let SquareToken   = T.refinement(SequenceToken, t => t.$type === "square",
+let SquareToken   = t.refinement(SequenceToken, t => t.$type === "square",
                                  "SquareToken");
 
-let AtomToken = T.refinement(Token, t => t.$type === "atom", "AtomToken");
-let PairToken = T.refinement(Token, t => t.$type === "pair", "PairToken");
+let AtomToken = t.refinement(Token, t => t.$type === "atom", "AtomToken");
+let PairToken = t.refinement(Token, t => t.$type === "pair", "PairToken");
 
 let Out   = {};
-Out.Local = T.struct({name: T.String, boundTo: T.Any}, "Out.Local");
-Out.Block = T.struct({steps: T.list(T.Any), locals: T.list(Out.Local)},
+Out.Local = t.struct({name: t.String, boundTo: t.Any}, "Out.Local");
+Out.Block = t.struct({steps: t.list(t.Any), locals: t.list(Out.Local)},
                      "Out.Block");
 
 // ## State stack stuff
 
-const State           = T.declare("State");
-const AppendToStateFn = T.func([State], State, "AppendToStateFn");
+const State           = t.declare("State");
+const AppendToStateFn = t.func([State], State, "AppendToStateFn");
 
-const AtomState   = T.struct({atom: T.String}, "AtomState");
-const IntState    = T.struct({intValue: T.Integer}, "IntState");
-const StringState = T.struct({stringValue: T.String}, "StringState");
+const AtomState   = t.struct({atom: t.String}, "AtomState");
+const IntState    = t.struct({intValue: t.Integer}, "IntState");
+const StringState = t.struct({stringValue: t.String}, "StringState");
 
 AtomState.prototype.toJs   = function() { return camelize(this.atom); };
 IntState.prototype.toJs    = function() { return this.intValue.toString(); };
@@ -135,12 +172,12 @@ StringState.prototype.toJs = function() {
 
 // ### Key-value pairs for dicts
 
-const KeyValuePair0 = T.struct({}, {name: "KeyValuePair/0", defaultProps: {}});
-const KeyValuePair1 = T.struct({value: State}, {name: "KeyValuePair/1"});
-const KeyValuePair2 = T.struct({key: State, value: State},
+const KeyValuePair0 = t.struct({}, {name: "KeyValuePair/0", defaultProps: {}});
+const KeyValuePair1 = t.struct({value: State}, {name: "KeyValuePair/1"});
+const KeyValuePair2 = t.struct({key: State, value: State},
                                {name: "KeyValuePair/2"});
 
-const KeyValuePair = T.union([KeyValuePair0, KeyValuePair1, KeyValuePair2],
+const KeyValuePair = t.union([KeyValuePair0, KeyValuePair1, KeyValuePair2],
                              "KeyValuePair");
 
 KeyValuePair0.prototype.append = AppendToStateFn.of(function(what) {
@@ -157,20 +194,32 @@ KeyValuePair2.prototype.toJs = function(i) {
 
 // ### Built-in expressions
 
-const ExpressionState = T.struct({}, "ExpressionState");
+const ExpressionState = t.struct({}, "ExpressionState");
 
 // ### BlockState: inside a statement block
+const kNO_EXIT      = "NoExit";
+const kRETURN       = "Return";
+const BlockExitType = t.enums.of([kNO_EXIT, kRETURN], "BlockExitType");
 
-const BlockState = T.struct({
-                              locals    : T.list(T.Any),
-                              statements: T.list(State)
-                            }, {
-                              name        : "BlockState",
-                              defaultProps: {
-                                locals    : [],
-                                statements: []
-                              }
-                            });
+const LocalBinding = t.struct({name: t.String, value: State}, "Local Binding");
+const BlockState   = t.struct({
+                                locals    : t.list(LocalBinding),
+                                statements: t.list(State),
+                                exitType  : BlockExitType
+                              }, {
+                                name        : "BlockState",
+                                defaultProps: {
+                                  locals    : [],
+                                  statements: [],
+                                  exitType  : kNO_EXIT
+                                }
+                              });
+
+const ReturnStatement = t.struct({returns: State}, "ReturnStatement");
+
+ReturnStatement.prototype.toJs = function(i) {
+  return `return ${this.returns.toJs(i)}`;
+};
 
 // appends something to the end of
 BlockState.prototype.append = AppendToStateFn.of(function(what) {
@@ -190,11 +239,30 @@ BlockState.prototype.toJs = function(indent = "") {
   if (this.locals.length === 0 && this.statements.length === 0) {
     return "{}";
   }
+
+  // return-type-dependent
+
+  let body = this.statements;
+  switch (this.exitType) {
+
+    case kRETURN:
+      if (body.length > 0) {
+        body          = body.slice(0);
+        let lastIdx   = body.length - 1;
+        body[lastIdx] = ReturnStatement({returns: body[lastIdx]});
+      } else {
+      }
+      break;
+
+    default:
+      break;
+  }
+
   let line     = s => `\n${indent}\t${s};`;
   let lines    = (ls) => ls.map(v => line(v)).join("");
   let contents = lines([].concat(
       this.locals.map(l => `let ${l.name} = ${l.value.toJs(indent + "\t")}`),
-      this.statements.map(v => v.toJs(indent + "\t"))
+      body.map(v => v.toJs(indent + "\t"))
   ));
   //let letStr   = lines(
   //    this.locals.map(l => `let ${l.name} = ${l.value.toJs(indent + "\t")}`));
@@ -208,15 +276,15 @@ function toJs(v) { return v.toJs(); }
 
 const SequenceStates = (function() {
 
-  const SquareState = T.struct({
-                                 elements: T.list(State)
+  const SquareState = t.struct({
+                                 elements: t.list(State)
                                }, {
                                  name        : "SquareState",
                                  defaultProps: {elements: []}
                                });
 
-  const CurlyState = T.struct({
-                                elements: T.list(State)
+  const CurlyState = t.struct({
+                                elements: t.list(State)
                               }, {
                                 name        : "CurlyState",
                                 defaultProps: {elements: []}
@@ -250,10 +318,10 @@ const SequenceStates = (function() {
 // ### Paren: calls & specials
 
 const ParenStates = (function() {
-  const ParenState0 = T.struct({}, "ParenState/0");
-  const ParenState1 = T.struct({head: State}, "ParenState/1");
+  const ParenState0 = t.struct({}, "ParenState/0");
+  const ParenState1 = t.struct({head: State}, "ParenState/1");
 
-  const ParenState2 = T.struct({head: State, tail: T.list(State)},
+  const ParenState2 = t.struct({head: State, tail: t.list(State)},
                                {
                                  name        : "ParenState/2",
                                  defaultProps: {tail: []}
@@ -262,7 +330,7 @@ const ParenStates = (function() {
   ParenState0.prototype.append = function(what) {
     if (AtomState.is(what)) {
       switch (what.atom) {
-        case "let":
+        case "with-local":
           return LetStates[0]({});
         case "fn":
           return FnStates.empty;
@@ -301,15 +369,49 @@ const ParenStates = (function() {
 
   return {
     empty: ParenState0({}),
-    union: T.union([ParenState0, ParenState1, ParenState2])
+    union: t.union([ParenState0, ParenState1, ParenState2])
   };
 }());
 
 // #### `(let [...] ...)`
 
+if (false) {
+
+  const LetBlockStates = (function() {
+
+    const Let0 = t.struct({}, "Let/0");
+    const Let1 = Let0.extend({bindings: t.list(LocalBinding)}, "Let/1");
+
+    const LetBinding0 = t.struct({}, "LetBinding/0");
+    const LetBinding1 = LetBinding0.extend({name: String}, "LetBinding/1");
+
+    Let0.prototype.append = function(bindings) {
+      let pairs = groupsOf(2, SquareState(bindings).elements, false);
+
+      return Let1({bindings: toLocalBinding});
+    };
+
+    LetBinding0.prototype.append = function(name) {
+      if (!AtomToken.is(name)) {
+        throw new Error("Binding in `let` requires an atom for name");
+      }
+
+      return LetBinding1({name: AtomToken(name).atom});
+    };
+
+    LetBinding1.prototype.append = function(val) {
+      return LocalBinding({name: this.name, value: val});
+    };
+
+    return {
+      baseType: Let0
+    };
+  }());
+}
+
 const LetStates = tupleBuilderTypes(
     "Builtins.Let",
-    [{name: T.String}, {value: State}],
+    [{name: t.String}, {value: State}],
     [
       function(what) {
         if (!AtomState.is(what)) {
@@ -327,8 +429,8 @@ const LetStates = tupleBuilderTypes(
 
 const FnStates = (function() {
 
-  const FnState0 = T.struct({}, "Fn/0");
-  const FnState1 = FnState0.extend({args: T.list(State)}, "Fn/1");
+  const FnState0 = t.struct({}, "Fn/0");
+  const FnState1 = FnState0.extend({args: t.list(State)}, "Fn/1");
   const FnState2 = FnState1.extend({body: BlockState}, "Fn/2");
 
   FnState0.prototype.append = function(what) {
@@ -339,7 +441,8 @@ const FnStates = (function() {
   };
 
   FnState1.prototype.append = function(what) {
-    return FnState2({args: this.args, body: BlockState({}).append(what)});
+    return FnState2(
+        {args: this.args, body: BlockState({exitType: kRETURN}).append(what)});
   };
 
   FnState2.prototype.append = function(what) {
@@ -353,13 +456,13 @@ const FnStates = (function() {
 
   return {
     empty: FnState0({}),
-    union: T.union([FnState0, FnState1, FnState2])
+    union: t.union([FnState0, FnState1, FnState2])
   };
 }());
 // #### `(def <name> ...)`
 
 const DefStates = (function() {
-  const DefState0 = T.struct({}, "Def/0");
+  const DefState0 = t.struct({}, "Def/0");
   const DefState1 = DefState0.extend({name: AtomState}, "Def/1");
   const DefState2 = DefState1.extend({value: State}, "Def/2");
 
@@ -385,7 +488,7 @@ const DefStates = (function() {
 
   return {
     empty: DefState0({}),
-    union: T.union([DefState0, DefState1, DefState2])
+    union: t.union([DefState0, DefState1, DefState2])
   };
 }());
 
@@ -393,7 +496,7 @@ const DefnStates = (function() {
 
   //// #### `(defn <name> ...)`
   //
-  const DefnState0 = T.struct({}, "Defn/0");
+  const DefnState0 = t.struct({}, "Defn/0");
   const DefnState1 = DefnState0.extend({name: AtomState}, "Defn/1");
   const DefnState2 = DefnState1.extend({args: SequenceStates.Square}, "Defn/2");
   const DefnState3 = DefnState2.extend({body: BlockState}, "Defn/3");
@@ -411,7 +514,11 @@ const DefnStates = (function() {
 
   DefnState2.prototype.append = function(what) {
     return DefnState3(
-        {name: this.name, args: this.args, body: BlockState({}).append(what)});
+        {
+          name: this.name,
+          args: this.args,
+          body: BlockState({exitType: kRETURN}).append(what)
+        });
   };
 
   DefnState3.prototype.append = function(what) {
@@ -426,13 +533,13 @@ const DefnStates = (function() {
 
   return {
     empty: DefnState0({}),
-    union: T.union([DefnState0, DefnState1, DefnState2, DefnState3])
+    union: t.union([DefnState0, DefnState1, DefnState2, DefnState3])
   };
 }());
 
 const IfStates = (function() {
 
-  const If0 = T.struct({}, "If/0");
+  const If0 = t.struct({}, "If/0");
   const If1 = If0.extend({condition: State}, "If/1");
   const If2 = If1.extend({onTrue: State}, "If/2");
   const If3 = If2.extend({onFalse: State}, "If/3");
@@ -459,12 +566,12 @@ const IfStates = (function() {
 
   return {
     empty: If0({}),
-    union: T.union([If0, If1, If2, If3], "If")
+    union: t.union([If0, If1, If2, If3], "If")
   };
 }());
 // ### State definition
 
-State.define(T.union([
+State.define(t.union([
                        BlockState,
                        ExpressionState,
                        AtomState,
@@ -475,8 +582,6 @@ State.define(T.union([
                        KeyValuePair,
 
                        ParenStates.union,
-                       //FnState2,
-                       //DefState2,
                        FnStates.union,
                        DefStates.union,
                        DefnStates.union,
@@ -488,43 +593,6 @@ State.define(T.union([
 function concatJsCode(sExprs) {
 
   // ## Wrapped stuff
-
-  // puts `what` between the elements of `seq`
-  function interpose(what, seq) {
-    let o    = [], len = seq.length;
-    o.length = len * 2 - 1;
-    for (let i = 0; i < len; ++i) {
-      o[i * 2] = seq[i];
-      if (i + 1 < len) { o[i * 2 + 1] = what; }
-    }
-    return o;
-  }
-
-  // returns the contents of seq grouped into n-tuples
-  function groupsOf(n, seq, includeIncomplete = true) {
-    let o           = [], len = seq.length;
-    let preferedLen = (includeIncomplete ? Math.floor : Math.ceil)(seq.length /
-        n);
-
-    o.length = preferedLen;
-
-    for (let i = 0; i < preferedLen; ++i) {
-      let g = [];
-      o[i]  = g;
-
-      for (let j = 0; j < n; ++j) {
-        let seqIdx = i * n + j;
-        // stop if over the end
-        if (seqIdx >= len) {
-          break;
-        }
-        g.push(seq[seqIdx]);
-      }
-    }
-
-    return o;
-  }
-
   // single expression
   function expr(state, e) {
     let {$type, $value} = Token(e);

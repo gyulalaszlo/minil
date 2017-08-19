@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "check": "node minil-js.js examples/test.mm2"
+    "check": "node minil-js.js examples/midi_circles.mm2",
+    "check-test": "node minil-js.js examples/test.mm2"
   },
   "author": "",
   "license": "ISC",
