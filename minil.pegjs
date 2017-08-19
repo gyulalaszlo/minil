@@ -100,7 +100,7 @@ Atom = ![#0-9] atom:$AtomChar+ { return token("atom", atom); }
 Key = ':' key:$AtomChar+ { return token("key", key); }
 //Macro = '#' macro:$AtomChar+ { return { macro }; }
 String = '"' string:$[^"]* '"' { return token("string", string); }
-Integer = val:[0-9]+ { return token("integer", val); }
+Integer = val:[0-9]+ { return token("integer", val.join("")); }
 
 AtomChar = [^(){}\[\]:^\t\n\r/,;" ]
 

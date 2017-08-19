@@ -36,11 +36,30 @@ function compile_files(parser, fileList) {
         .then(parser.parse)
         .catch(printParserError)
         .then(concatJsCode)
-        .then(v => JSON.stringify(v, null, "  "))
+        //.then(v => JSON.stringify(v, null, "  "))
         .then(console.log)
         .catch(console.error);
   }, []);
 
+}
+
+function tupleBuilderTypes(baseName, stepTypeExtensions, stepFns) {
+
+  let steps                 = [T.struct({}, `${baseName}/0`)];
+  steps[0].prototype.append = stepFns[0];
+  let last                  = stepFns.reduce(function(previousType, stepFn, i) {
+    let extensionsThisRound      = stepTypeExtensions[i];
+    let stepType                 = previousType.extend(extensionsThisRound,
+                                                       `${baseName}/${i + 1}`);
+    previousType.prototype.$next = stepType;
+    stepType.prototype.append    = stepFns[i + 1];
+    stepType.prototype.kind      = i;
+
+    steps.push(stepType);
+    return stepType;
+  }, steps[0]);
+  steps.last                = last;
+  return steps;
 }
 
 // # Types
@@ -65,6 +84,7 @@ let SquareToken   = T.refinement(SequenceToken, t => t.$type === "square",
 let AtomToken = T.refinement(Token, t => t.$type === "atom", "AtomToken");
 let PairToken = T.refinement(Token, t => t.$type === "pair", "PairToken");
 
+
 let Out   = {};
 Out.Local = T.struct({name: T.String, boundTo: T.Any}, "Out.Local");
 Out.Block = T.struct({steps: T.list(T.Any), locals: T.list(Out.Local)},
@@ -78,6 +98,10 @@ const AppendToStateFn = T.func([State], State, "AppendToStateFn");
 const AtomState   = T.struct({atom: T.String}, "AtomState");
 const IntState    = T.struct({intValue: T.Integer}, "IntState");
 const StringState = T.struct({stringValue: T.String}, "StringState");
+
+AtomState.prototype.toJs = function() { return this.atom; }
+IntState.prototype.toJs = function() { return this.intValue.toString(); }
+StringState.prototype.toJs = function() { return JSON.stringify(this.stringValue); }
 
 const KeyValuePair0 = T.struct({}, {name: "KeyValuePair/0", defaultProps: {}});
 const KeyValuePair1 = T.struct({value: State}, {name: "KeyValuePair/1"});
@@ -111,9 +135,20 @@ const BlockState = T.struct({
                             });
 
 // appends something to the end of
-BlockState.prototype.append = AppendToStateFn.of(function(...what) {
-  return BlockState.update(this, {statements: {$push: what}});
+BlockState.prototype.append = AppendToStateFn.of(function(what) {
+  //if (BlockState.is(what)) {
+  //  return BlockState.update(this, {
+  //    locals    : {$push: what.locals},
+  //    statements: {$push: what.statements}
+  //  });
+  //}
+  return BlockState.update(this, {statements: {$push: [what]}});
 });
+
+BlockState.prototype.toJs = function(indent = "") {
+  let letStr = this.locals.map(l => `let ${l.name} = ${l.value.toJs(indent + "\t")};\n${indent}`).join("");
+  return `${indent}{\n${indent}${letStr}${this.statements.map(v => v.toJs(indent + "\t")).join(";\n" + indent)}\n${indent}}`
+};
 
 // ### Sequence types
 
@@ -147,12 +182,22 @@ const ParenState0 = T.struct({}, "ParenState/0");
 const ParenState1 = T.struct({head: State}, "ParenState/1");
 
 const ParenState2 = T.struct({head: State, tail: T.list(State)},
-                             {name: "ParenState", defaultProps: {tail: []}});
+                             {name: "ParenState/2", defaultProps: {tail: []}});
 
 const ParenState = T.union([ParenState0, ParenState1, ParenState2],
                            "ParentState");
 
 ParenState0.prototype.append = function(what) {
+  if (AtomState.is(what)) {
+    switch (what.atom) {
+      case "let":
+        return LetStates[0]({});
+      case "fn":
+        return FnState0({});
+      default:
+        break;
+    }
+  }
   return ParenState1({head: what});
 };
 
@@ -163,6 +208,67 @@ ParenState1.prototype.append = function(what) {
 ParenState2.prototype.append = function(what) {
   return ParenState2.update(this, {tail: {$push: [what]}});
 };
+
+ParenState2.prototype.toJs = function(indent = "\t") {
+  return `${this.head.toJs()}( ${this.tail.map(v => v.toJs(indent + "\t")).join(', ')} )`;
+};
+
+const LetStates = tupleBuilderTypes(
+    "Builtins.Let",
+    [{name: T.String}, {value: State}],
+    [
+      function(what) {
+        if (!AtomState.is(what)) {
+          throw new Error("First argument for `let` must be an atom");
+        }
+        return this.$next({name: what.atom});
+      },
+      function(what) {
+        return BlockState({locals: [{name: this.name, value: what}]});
+      }
+
+    ]);
+
+const FnState0 = T.struct({}, "Fn/0");
+const FnState1 = FnState0.extend({args: T.list(State)}, "Fn/1");
+const FnState2 = FnState1.extend({body: BlockState}, "Fn/2");
+
+FnState0.prototype.append = function(what) {
+  if (!SquareState.is(what)) {
+    throw new Error("First argument for `fn` must be a square");
+  }
+  return FnState1({args: what.elements});
+};
+
+FnState1.prototype.append = function(what) {
+  return FnState2({args: this.args, body:BlockState({}).append(what)})
+};
+
+FnState2.prototype.append = function(what) {
+  return FnState2({args: this.args, body: this.body.append(what)})
+};
+
+
+FnState2.prototype.toJs = function(indent="") {
+  return `function(${this.args.map(v => v.atom).join(", ")}) ${this.body.toJs(indent+"\t")}`
+};
+
+//const FunctionStates = tupleBuilderTypes(
+//    "Builtins.Fn",
+//    [{arguments: SquareState}, {body: BlockState}],
+//    [
+//      function(what) {
+//        if (!SquareState.is(what)) {
+//          throw new Error("First argument for `fn` must be a square");
+//        }
+//        return this.$next({name: what.atom});
+//      },
+//      function(what) {
+//        return BlockState({locals: [{name: this.name, value: what}]});
+//      }
+//
+//    ]);
+
 // ### State definition
 
 State.define(T.union([
@@ -174,79 +280,12 @@ State.define(T.union([
                        SquareState,
                        KeyValuePair,
 
-                       ParenState]));
+                       ParenState,
+                     FnState2]));
 
 //
 function concatJsCode(sExprs) {
-
-  function newState() {
-    return {
-      statements : [],
-      stack      : [],
-      stackStates: []
-    };
-  }
-
-  // saves the curent stack
-  function saveStack(state) {
-    //state.stackStates.push(state.stack);
-    //state.stack = [];
-
-    return state;
-  }
-
-  function restoreStack(state) {
-    //let {stackStates} = state;
-    //state.stack       = stackStates[stackStates.length - 1];
-    //state.stackStates.pop();
-
-    return state;
-  }
-
-  function pushTo(stack, what) {
-    stack.push(what);
-    return stack;
-  }
-
-  function popFrom(stack) {
-    stack.pop();
-    return stack;
-  }
-
-  function peek(stack) {
-    if (stack.length === 0) return null;
-    return stack[stack.length - 1];
-  }
-
-  function paraseList(state, e) {
-    let values         = TokenList(tokenValue(e).map(v => Token(v)));
-    state              = saveStack(state);
-    state              = values.reduce(expr, state);
-    let parsedElements = state.stack;
-    state              = restoreStack(state);
-
-    pushTo(state.stack, parsedElements);
-    return state;
-  }
-
   const noPreprocessor = null;
-
-  // Transforms a parsed seqence and pushes the result to the stack of the state
-  function mapParsedSeqence(preprocessor, callback, state, e) {
-    if (preprocessor) {
-      state = preprocessor(saveStack(state), e);
-      e     = state.stack;
-      state = restoreStack(state);
-    }
-
-    state      = paraseList(state, e);
-    let parsed = peek(state.stack);
-
-    popFrom(state.stack);
-    let transformed = callback(state, parsed, e);
-    pushTo(state.stack, transformed);
-    return state;
-  }
 
   // ## Wrapped stuff
 
@@ -286,40 +325,6 @@ function concatJsCode(sExprs) {
     return o;
   }
 
-  function paren(state, parsed, e) {
-    if (e.length === 0) { throw new Error("Empty () encountered");}
-    let first = parsed[0];
-
-    if (specialForms[first]) {
-      state = specialForms[first](state, e);
-      return [];
-    } else {
-      //let parsed = toParse
-      let args = interpose(",", parsed.slice(1));
-      return [parsed[0], "(", ...args, ")"];
-    }
-
-  }
-
-  /*
-  function square(state, parsed, e) {
-    let elements = interpose(",", parsed);
-    return ["[", ...elements, "]"];
-  }
-
-  function curly(state, parsed, e) {
-    if (parsed.length % 2 !== 0) {
-      throw new Error("Unpaired key in key-value pairs");
-    }
-
-    let pairs    = groupsOf(2, parsed, false).map(([k, v]) => [k, ":", v]);
-    let elements = interpose(",", pairs);
-    return ["{", ...elements, "}"];
-  }
-
-  */
-  ///
-
   // single expression
   function expr(state, e) {
     let {$type, $value} = Token(e);
@@ -327,21 +332,18 @@ function concatJsCode(sExprs) {
     switch ($type) {
       case "paren":
         return state.append($value.reduce(expr, ParenState0({})));
-        //return mapParsedSeqence(noPreprocessor, paren, state, e);
 
       case "square":
         return state.append($value.reduce(expr, SquareState({})));
-        //return mapParsedSeqence(noPreprocessor, square, state, e);
-        //
+
       case "curly":
         return state.append($value.reduce(pair, CurlyState({})));
-        //return mapParsedSeqence(noPreprocessor, curly, state, e);
 
       case "atom":
         return state.append(AtomState({atom: $value}));
 
       case "integer":
-        let intValue = parseInt($value.join(""));
+        let intValue = parseInt($value);
         return state.append(IntState({intValue}));
 
       case "string":
@@ -432,6 +434,7 @@ function concatJsCode(sExprs) {
   let parsedState = sExprs.map(preProcessRawTokens)
                           .reduce(expr, BlockState({}));
 
+  console.log(parsedState.toJs())
   return parsedState;
 
 }
