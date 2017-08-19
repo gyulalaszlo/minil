@@ -44,12 +44,32 @@ function compile_files(parser, fileList) {
 
 }
 
+const CHAR_NAME_MAP = [
+
+  [/\+/g, " Plus "],
+  [/^-$/g, " Minus "],
+  //[/-/g, '_'],
+  [/=/g, " Equal "],
+  [/[^a-zA-Z0-9_\$\.]+/g, " "]
+];
+
 function camelize(str) {
-  return str.replace(/[^a-zA-Z0-9_\.]+/, " ")
-            .replace(/(?:^\w|[A-Z]|\b\w)/g, function(letter, index) {
-              return index === 0 ? letter.toLowerCase() : letter.toUpperCase();
-            })
-            .replace(/\s+/g, "");
+  let renamed = CHAR_NAME_MAP.reduce(function(built, [rx, renameTo]) {
+    return built.replace(rx, renameTo);
+  }, str);
+
+  let words = renamed.split(/ +/g);
+  //let words = renamed.split(/[^a-zA-Z0-9\$\.]+/g);
+  return words.slice(0, 1).concat(words.slice(1)
+                                       .map(v => v.substr(0, 1).toUpperCase() +
+                                           v.substr(1)))
+              .join("");
+
+  //return CameCased.substr(0,1).toLowerCase() + CameCased.substr(1);
+  //return str.replace(/[^a-zA-Z0-9_\.]+/, " ")
+  //          .replace(/(?:^\w|[A-Z]|\b\w)/g, function(letter, index) {
+  //            return index === 0 ? letter.toLowerCase() :
+  // letter.toUpperCase(); }) .replace(/\s+/g, "");
 }
 
 function tupleBuilderTypes(baseName, stepTypeExtensions, stepFns) {
@@ -131,6 +151,10 @@ KeyValuePair1.prototype.append = AppendToStateFn.of(function(what) {
   return KeyValuePair2({key: what, value: this.value});
 });
 
+KeyValuePair2.prototype.toJs = function(i) {
+  return `${this.key.toJs(i)} : ${this.value.toJs(i + "\t")}`;
+};
+
 // ### Built-in expressions
 
 const ExpressionState = T.struct({}, "ExpressionState");
@@ -178,41 +202,51 @@ BlockState.prototype.toJs = function(indent = "") {
   return `{${contents}\n${indent}}`;
 };
 
-// ### Sequence types
-
-const SquareState = T.struct({
-                               elements: T.list(State)
-                             }, {
-                               name        : "SquareState",
-                               defaultProps: {elements: []}
-                             });
-
-const CurlyState = T.struct({
-                              elements: T.list(State)
-                            }, {
-                              name        : "CurlyState",
-                              defaultProps: {elements: []}
-                            });
-
-// ###
-const _appendToElements = function(type) {
-  return AppendToStateFn.of(function(...what) {
-    return type.update(this, {elements: {$push: what}});
-  });
-};
-
-SquareState.prototype.append = _appendToElements(SquareState);
-CurlyState.prototype.append  = _appendToElements(SquareState);
-
 function toJs(v) { return v.toJs(); }
 
-SquareState.prototype.toJs = function() {
-  return "[" + this.elements.map(toJs).join(", ") + "]";
-};
+// ### Sequence types
 
-CurlyState.prototype.toJs = function() {
-  return "{" + this.elements.map(toJs).join(", ") + "}";
-};
+const SequenceStates = (function() {
+
+  const SquareState = T.struct({
+                                 elements: T.list(State)
+                               }, {
+                                 name        : "SquareState",
+                                 defaultProps: {elements: []}
+                               });
+
+  const CurlyState = T.struct({
+                                elements: T.list(State)
+                              }, {
+                                name        : "CurlyState",
+                                defaultProps: {elements: []}
+                              });
+
+  // ###
+  const _appendToElements = function(type) {
+    return AppendToStateFn.of(function(...what) {
+      return type.update(this, {elements: {$push: what}});
+    });
+  };
+
+  SquareState.prototype.append = _appendToElements(SquareState);
+  CurlyState.prototype.append  = _appendToElements(CurlyState);
+
+  SquareState.prototype.toJs = function() {
+    return "[" + this.elements.map(toJs).join(", ") + "]";
+  };
+
+  CurlyState.prototype.toJs = function() {
+    return "{" + this.elements.map(toJs).join(", ") + "}";
+  };
+
+  return {
+    Square: SquareState,
+    Curly : CurlyState
+  };
+
+}());
+
 // ### Paren: calls & specials
 
 const ParenStates = (function() {
@@ -261,8 +295,8 @@ const ParenStates = (function() {
   };
 
   ParenState2.prototype.toJs = function(indent = "\t") {
-    return `${this.head.toJs()}( ${this.tail.map(v => v.toJs(indent + "\t"))
-                                       .join(", ")} )`;
+    return `${this.head.toJs()}(${this.tail.map(v => v.toJs(indent + "\t"))
+                                      .join(", ")})`;
   };
 
   return {
@@ -298,7 +332,7 @@ const FnStates = (function() {
   const FnState2 = FnState1.extend({body: BlockState}, "Fn/2");
 
   FnState0.prototype.append = function(what) {
-    if (!SquareState.is(what)) {
+    if (!SequenceStates.Square.is(what)) {
       throw new Error("First argument for `fn` must be a square");
     }
     return FnState1({args: what.elements});
@@ -346,7 +380,7 @@ const DefStates = (function() {
   };
 
   DefState2.prototype.toJs = function(indent = "") {
-    return `const ${this.name.toJs()} = ${this.value.toJs(indent)}`;
+    return `\n${indent}const ${this.name.toJs()} = ${this.value.toJs(indent)}`;
   };
 
   return {
@@ -361,7 +395,7 @@ const DefnStates = (function() {
   //
   const DefnState0 = T.struct({}, "Defn/0");
   const DefnState1 = DefnState0.extend({name: AtomState}, "Defn/1");
-  const DefnState2 = DefnState1.extend({args: SquareState}, "Defn/2");
+  const DefnState2 = DefnState1.extend({args: SequenceStates.Square}, "Defn/2");
   const DefnState3 = DefnState2.extend({body: BlockState}, "Defn/3");
 
   DefnState0.prototype.append = function(what) {
@@ -387,7 +421,7 @@ const DefnStates = (function() {
   DefnState3.prototype.toJs = function(indent = "") {
     let argList = this.args.elements.map(toJs).join(", ");
     let bodyStr = this.body.toJs(indent);
-    return `function ${this.name.toJs()}(${argList})${bodyStr}`;
+    return `\n${indent}function ${this.name.toJs()}(${argList})${bodyStr}`;
   };
 
   return {
@@ -436,7 +470,8 @@ State.define(T.union([
                        AtomState,
                        IntState,
                        StringState,
-                       SquareState,
+                       SequenceStates.Square,
+                       SequenceStates.Curly,
                        KeyValuePair,
 
                        ParenStates.union,
@@ -446,7 +481,7 @@ State.define(T.union([
                        DefStates.union,
                        DefnStates.union,
 
-                       IfStates.union,
+                       IfStates.union
                      ]));
 
 //
@@ -499,10 +534,10 @@ function concatJsCode(sExprs) {
         return state.append($value.reduce(expr, ParenStates.empty));
 
       case "square":
-        return state.append($value.reduce(expr, SquareState({})));
+        return state.append($value.reduce(expr, SequenceStates.Square({})));
 
       case "curly":
-        return state.append($value.reduce(pair, CurlyState({})));
+        return state.append($value.reduce(pair, SequenceStates.Curly({})));
 
       case "atom":
         return state.append(AtomState({atom: $value}));
@@ -512,6 +547,9 @@ function concatJsCode(sExprs) {
         return state.append(IntState({intValue}));
 
       case "string":
+        return state.append(StringState({stringValue: $value}));
+
+      case "key":
         return state.append(StringState({stringValue: $value}));
 
       case "comment":
