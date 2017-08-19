@@ -3,12 +3,19 @@
 (def hello "Hello")
 (def say-hello (fn [name] (console.log hello name)))
 
+(defn say-what? [what name]
+    (console.log "'%s, %s!'" what  name))
+
 ((fn []
 (let name "Joe"
     (let sign "!"
         (print "Hey, " name sign)))
 ))
 
+(defn say-to [what name]
+    (if (= name what)
+        (console.log "2x'%s'" name)
+        (console.log "'%s, %s!'" what  name)))
 
 ;; name "is" 13 or [1 3 "12"]
 ;; {a 12

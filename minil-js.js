@@ -44,11 +44,12 @@ function compile_files(parser, fileList) {
 
 }
 
-
 function camelize(str) {
-  return str.replace(/[^a-zA-Z0-9_\.]+/, ' ').replace(/(?:^\w|[A-Z]|\b\w)/g, function(letter, index) {
-    return index === 0 ? letter.toLowerCase() : letter.toUpperCase();
-  }).replace(/\s+/g, '');
+  return str.replace(/[^a-zA-Z0-9_\.]+/, " ")
+            .replace(/(?:^\w|[A-Z]|\b\w)/g, function(letter, index) {
+              return index === 0 ? letter.toLowerCase() : letter.toUpperCase();
+            })
+            .replace(/\s+/g, "");
 }
 
 function tupleBuilderTypes(baseName, stepTypeExtensions, stepFns) {
@@ -162,12 +163,19 @@ BlockState.prototype.append = AppendToStateFn.of(function(what) {
 });
 
 BlockState.prototype.toJs = function(indent = "") {
-  let line   = s => `${indent}\t${s};\n`;
-  let lines  = (ls) => ls.map(v => line(v)).join("");
-  let letStr = lines(
-      this.locals.map(l => `let ${l.name} = ${l.value.toJs(indent + "\t")}`));
-  let body   = lines(this.statements.map(toJs));
-  return `${indent}{\n${letStr}${body}${indent}}`;
+  if (this.locals.length === 0 && this.statements.length === 0) {
+    return "{}";
+  }
+  let line     = s => `\n${indent}\t${s};`;
+  let lines    = (ls) => ls.map(v => line(v)).join("");
+  let contents = lines([].concat(
+      this.locals.map(l => `let ${l.name} = ${l.value.toJs(indent + "\t")}`),
+      this.statements.map(v => v.toJs(indent + "\t"))
+  ));
+  //let letStr   = lines(
+  //    this.locals.map(l => `let ${l.name} = ${l.value.toJs(indent + "\t")}`));
+  //let body     = lines(this.statements.map(v => v.toJs(indent + "\t")));
+  return `{${contents}\n${indent}}`;
 };
 
 // ### Sequence types
@@ -207,47 +215,63 @@ CurlyState.prototype.toJs = function() {
 };
 // ### Paren: calls & specials
 
-const ParenState0 = T.struct({}, "ParenState/0");
-const ParenState1 = T.struct({head: State}, "ParenState/1");
+const ParenStates = (function() {
+  const ParenState0 = T.struct({}, "ParenState/0");
+  const ParenState1 = T.struct({head: State}, "ParenState/1");
 
-const ParenState2 = T.struct({head: State, tail: T.list(State)},
-                             {name: "ParenState/2", defaultProps: {tail: []}});
+  const ParenState2 = T.struct({head: State, tail: T.list(State)},
+                               {
+                                 name        : "ParenState/2",
+                                 defaultProps: {tail: []}
+                               });
 
-const ParenState = T.union([ParenState0, ParenState1, ParenState2],
-                           "ParentState");
-
-ParenState0.prototype.append = function(what) {
-  if (AtomState.is(what)) {
-    switch (what.atom) {
-      case "let":
-        return LetStates[0]({});
-      case "fn":
-        return FnState0({});
-      case "def":
-        return DefState0({});
-      default:
-        break;
+  ParenState0.prototype.append = function(what) {
+    if (AtomState.is(what)) {
+      switch (what.atom) {
+        case "let":
+          return LetStates[0]({});
+        case "fn":
+          return FnStates.empty;
+        case "def":
+          return DefStates.empty;
+        case "defn":
+          return DefnStates.empty;
+        case "if":
+          return IfStates.empty;
+        default:
+          break;
+      }
     }
-  }
-  return ParenState1({head: what});
-};
+    return ParenState1({head: what});
+  };
 
-ParenState1.prototype.append = function(what) {
-  return ParenState2({head: this.head, tail: [what]});
-};
+  ParenState1.prototype.append = function(what) {
+    return ParenState2({head: this.head, tail: [what]});
+  };
 
-ParenState2.prototype.append = function(what) {
-  return ParenState2.update(this, {tail: {$push: [what]}});
-};
+  ParenState2.prototype.append = function(what) {
+    return ParenState2.update(this, {tail: {$push: [what]}});
+  };
 
-ParenState1.prototype.toJs = function(indent = "\t") {
-  return `(${this.head.toJs()}())`;
-};
+  ParenState1.prototype.toJs = function(indent) {
+    if (!AtomState.is(this.head)) {
+      return `(${this.head.toJs(indent)}())`;
+    }
+    return `${this.head.toJs(indent)}()`;
+  };
 
-ParenState2.prototype.toJs = function(indent = "\t") {
-  return `${this.head.toJs()}( ${this.tail.map(v => v.toJs(indent + "\t"))
-                                     .join(", ")} )`;
-};
+  ParenState2.prototype.toJs = function(indent = "\t") {
+    return `${this.head.toJs()}( ${this.tail.map(v => v.toJs(indent + "\t"))
+                                       .join(", ")} )`;
+  };
+
+  return {
+    empty: ParenState0({}),
+    union: T.union([ParenState0, ParenState1, ParenState2])
+  };
+}());
+
+// #### `(let [...] ...)`
 
 const LetStates = tupleBuilderTypes(
     "Builtins.Let",
@@ -265,65 +289,145 @@ const LetStates = tupleBuilderTypes(
 
     ]);
 
-const FnState0 = T.struct({}, "Fn/0");
-const FnState1 = FnState0.extend({args: T.list(State)}, "Fn/1");
-const FnState2 = FnState1.extend({body: BlockState}, "Fn/2");
+// #### `(fn [...] ...)`
 
-FnState0.prototype.append = function(what) {
-  if (!SquareState.is(what)) {
-    throw new Error("First argument for `fn` must be a square");
-  }
-  return FnState1({args: what.elements});
-};
+const FnStates = (function() {
 
-FnState1.prototype.append = function(what) {
-  return FnState2({args: this.args, body: BlockState({}).append(what)});
-};
+  const FnState0 = T.struct({}, "Fn/0");
+  const FnState1 = FnState0.extend({args: T.list(State)}, "Fn/1");
+  const FnState2 = FnState1.extend({body: BlockState}, "Fn/2");
 
-FnState2.prototype.append = function(what) {
-  return FnState2({args: this.args, body: this.body.append(what)});
-};
+  FnState0.prototype.append = function(what) {
+    if (!SquareState.is(what)) {
+      throw new Error("First argument for `fn` must be a square");
+    }
+    return FnState1({args: what.elements});
+  };
 
-FnState2.prototype.toJs = function(indent = "") {
-  return `function(${this.args.map(v => v.atom)
-                         .join(", ")})\n${this.body.toJs(indent + "\t")}`;
-};
+  FnState1.prototype.append = function(what) {
+    return FnState2({args: this.args, body: BlockState({}).append(what)});
+  };
 
-const DefState0 = T.struct({}, "Def/0");
-const DefState1 = DefState0.extend({name: AtomState}, "Def/1");
-const DefState2 = DefState1.extend({value: State}, "Def/2");
+  FnState2.prototype.append = function(what) {
+    return FnState2({args: this.args, body: this.body.append(what)});
+  };
 
-DefState0.prototype.append = function(what) {
-  if (!AtomState.is(what)) {
-    throw new Error("First argument for `def` must be an atom");
-  }
-  return DefState1({name: what});
-};
+  FnState2.prototype.toJs = function(indent = "") {
+    return `function(${this.args.map(v => v.atom)
+                           .join(", ")})${this.body.toJs(indent)}`;
+  };
 
-DefState1.prototype.append = function(what) {
-  return DefState2({name: this.name, value: what});
-};
+  return {
+    empty: FnState0({}),
+    union: T.union([FnState0, FnState1, FnState2])
+  };
+}());
+// #### `(def <name> ...)`
 
-DefState2.prototype.toJs = function(indent = "") {
-  return `const ${this.name.toJs()} = ${this.value.toJs(indent + "\t")}`;
-};
+const DefStates = (function() {
+  const DefState0 = T.struct({}, "Def/0");
+  const DefState1 = DefState0.extend({name: AtomState}, "Def/1");
+  const DefState2 = DefState1.extend({value: State}, "Def/2");
 
-//const FunctionStates = tupleBuilderTypes(
-//    "Builtins.Fn",
-//    [{arguments: SquareState}, {body: BlockState}],
-//    [
-//      function(what) {
-//        if (!SquareState.is(what)) {
-//          throw new Error("First argument for `fn` must be a square");
-//        }
-//        return this.$next({name: what.atom});
-//      },
-//      function(what) {
-//        return BlockState({locals: [{name: this.name, value: what}]});
-//      }
-//
-//    ]);
+  DefState0.prototype.append = function(what) {
+    if (!AtomState.is(what)) {
+      throw new Error("First argument for `def` must be an atom");
+    }
+    return DefState1({name: what});
+  };
 
+  DefState1.prototype.append = function(what) {
+    return DefState2({name: this.name, value: what});
+  };
+
+  DefState2.prototype.append = function(what) {
+    throw new Error("Excess arguments for def: (def NAME VALUE >>>" +
+        JSON.stringify(what) + "<<<<)");
+  };
+
+  DefState2.prototype.toJs = function(indent = "") {
+    return `const ${this.name.toJs()} = ${this.value.toJs(indent)}`;
+  };
+
+  return {
+    empty: DefState0({}),
+    union: T.union([DefState0, DefState1, DefState2])
+  };
+}());
+
+const DefnStates = (function() {
+
+  //// #### `(defn <name> ...)`
+  //
+  const DefnState0 = T.struct({}, "Defn/0");
+  const DefnState1 = DefnState0.extend({name: AtomState}, "Defn/1");
+  const DefnState2 = DefnState1.extend({args: SquareState}, "Defn/2");
+  const DefnState3 = DefnState2.extend({body: BlockState}, "Defn/3");
+
+  DefnState0.prototype.append = function(what) {
+    if (!AtomState.is(what)) {
+      throw new Error("First argument for `def` must be an atom");
+    }
+    return DefnState1({name: what});
+  };
+
+  DefnState1.prototype.append = function(what) {
+    return DefnState2({name: this.name, args: what});
+  };
+
+  DefnState2.prototype.append = function(what) {
+    return DefnState3(
+        {name: this.name, args: this.args, body: BlockState({}).append(what)});
+  };
+
+  DefnState3.prototype.append = function(what) {
+    return DefnState3.update(this, {body: {$set: this.body.append(what)}});
+  };
+
+  DefnState3.prototype.toJs = function(indent = "") {
+    let argList = this.args.elements.map(toJs).join(", ");
+    let bodyStr = this.body.toJs(indent);
+    return `function ${this.name.toJs()}(${argList})${bodyStr}`;
+  };
+
+  return {
+    empty: DefnState0({}),
+    union: T.union([DefnState0, DefnState1, DefnState2, DefnState3])
+  };
+}());
+
+const IfStates = (function() {
+
+  const If0 = T.struct({}, "If/0");
+  const If1 = If0.extend({condition: State}, "If/1");
+  const If2 = If1.extend({onTrue: State}, "If/2");
+  const If3 = If2.extend({onFalse: State}, "If/3");
+
+  If0.prototype.append = function(what) {
+    if (BlockState.is(what)) {
+      throw new Error("Cannot add statement(s) as conditions to `(if)` block. Got:" +
+          JSON.stringify(what));
+    }
+    return If1({condition: what});
+  };
+
+  If1.prototype.append = function(what) {
+    return If2({condition: this.condition, onTrue: what});
+  };
+  If2.prototype.append = function(what) {
+    return If3({condition: this.condition, onTrue: this.onTrue, onFalse: what});
+  };
+
+  If3.prototype.toJs = function(indent = "") {
+    return `if (${this.condition.toJs(indent)}) ${this.onTrue.toJs(
+        indent)} else ${this.onFalse.toJs(indent)}`;
+  };
+
+  return {
+    empty: If0({}),
+    union: T.union([If0, If1, If2, If3], "If")
+  };
+}());
 // ### State definition
 
 State.define(T.union([
@@ -335,13 +439,18 @@ State.define(T.union([
                        SquareState,
                        KeyValuePair,
 
-                       ParenState,
-                       FnState2,
-                       DefState2]));
+                       ParenStates.union,
+                       //FnState2,
+                       //DefState2,
+                       FnStates.union,
+                       DefStates.union,
+                       DefnStates.union,
+
+                       IfStates.union,
+                     ]));
 
 //
 function concatJsCode(sExprs) {
-  const noPreprocessor = null;
 
   // ## Wrapped stuff
 
@@ -387,7 +496,7 @@ function concatJsCode(sExprs) {
 
     switch ($type) {
       case "paren":
-        return state.append($value.reduce(expr, ParenState0({})));
+        return state.append($value.reduce(expr, ParenStates.empty));
 
       case "square":
         return state.append($value.reduce(expr, SquareState({})));
@@ -417,62 +526,6 @@ function concatJsCode(sExprs) {
     let [key, value] = PairToken(kv).$value;
     return state.append(expr(expr(KeyValuePair0({}), value), key));
   }
-
-  function _withParsedExpression(callback, e, state) {
-
-    state           = expr(state, e);
-    let parsedValue = peek(state.stack);
-    popFrom(state.stack);
-
-    return callback(state, parsedValue);
-  }
-
-  function addStatements(statements, state) {
-    state.statements.push(...statements);
-    return state;
-  }
-
-  const specialForms = {
-    "let": (state, e) => {
-      let {$value} = e;
-
-      //T.assert($value.length > 2,
-      //    "Missing let bindings and/or body: (let [...] >>...<<)");
-
-      //T.assert($value[1].$type === "square",
-      //    "Expected the bindings to be a square: (let >>[...]<< ...)");
-
-      let bindingsPairs = groupsOf(2, SequenceToken($value[1]).$value, false);
-
-      // fold each binding into the state
-      let bindingsState = bindingsPairs.reduce(function(state, [name, value]) {
-        let boundToName = AtomToken(name).$value;
-        return _withParsedExpression(function(state, parsedValue) {
-          return addStatements(
-              [Out.Local({name: boundToName, boundTo: parsedValue})],
-              state);
-        }, value, state);
-      }, newState());
-
-      // fold the body into the state
-      let body      = $value.slice(2);
-      let bodyState = body.reduce(function(state, step) {
-        return _withParsedExpression(function(state, parsedValue) {
-          return addStatements([parsedValue], state);
-        }, step, state);
-        //}, newState());
-      }, BlockState({statements: [], locals: [], stack: [], stackStates: []}));
-
-      let bodyBlock = Out.Block({
-                                  steps : bodyState.statements,
-                                  locals: bindingsState.statements
-                                });
-      state         = addStatements([bodyBlock], state);
-
-      return state;
-    },
-    "if" : {}
-  };
 
   // Ensure all tokens are of proper type
   function preProcessRawTokens(raw) {
