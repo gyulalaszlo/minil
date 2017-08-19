@@ -36,11 +36,19 @@ function compile_files(parser, fileList) {
         .then(parser.parse)
         .catch(printParserError)
         .then(concatJsCode)
+        .then(toJs)
         //.then(v => JSON.stringify(v, null, "  "))
         .then(console.log)
         .catch(console.error);
   }, []);
 
+}
+
+
+function camelize(str) {
+  return str.replace(/[^a-zA-Z0-9_\.]+/, ' ').replace(/(?:^\w|[A-Z]|\b\w)/g, function(letter, index) {
+    return index === 0 ? letter.toLowerCase() : letter.toUpperCase();
+  }).replace(/\s+/g, '');
 }
 
 function tupleBuilderTypes(baseName, stepTypeExtensions, stepFns) {
@@ -84,7 +92,6 @@ let SquareToken   = T.refinement(SequenceToken, t => t.$type === "square",
 let AtomToken = T.refinement(Token, t => t.$type === "atom", "AtomToken");
 let PairToken = T.refinement(Token, t => t.$type === "pair", "PairToken");
 
-
 let Out   = {};
 Out.Local = T.struct({name: T.String, boundTo: T.Any}, "Out.Local");
 Out.Block = T.struct({steps: T.list(T.Any), locals: T.list(Out.Local)},
@@ -99,9 +106,13 @@ const AtomState   = T.struct({atom: T.String}, "AtomState");
 const IntState    = T.struct({intValue: T.Integer}, "IntState");
 const StringState = T.struct({stringValue: T.String}, "StringState");
 
-AtomState.prototype.toJs = function() { return this.atom; }
-IntState.prototype.toJs = function() { return this.intValue.toString(); }
-StringState.prototype.toJs = function() { return JSON.stringify(this.stringValue); }
+AtomState.prototype.toJs   = function() { return camelize(this.atom); };
+IntState.prototype.toJs    = function() { return this.intValue.toString(); };
+StringState.prototype.toJs = function() {
+  return JSON.stringify(this.stringValue);
+};
+
+// ### Key-value pairs for dicts
 
 const KeyValuePair0 = T.struct({}, {name: "KeyValuePair/0", defaultProps: {}});
 const KeyValuePair1 = T.struct({value: State}, {name: "KeyValuePair/1"});
@@ -118,6 +129,8 @@ KeyValuePair0.prototype.append = AppendToStateFn.of(function(what) {
 KeyValuePair1.prototype.append = AppendToStateFn.of(function(what) {
   return KeyValuePair2({key: what, value: this.value});
 });
+
+// ### Built-in expressions
 
 const ExpressionState = T.struct({}, "ExpressionState");
 
@@ -136,18 +149,25 @@ const BlockState = T.struct({
 
 // appends something to the end of
 BlockState.prototype.append = AppendToStateFn.of(function(what) {
-  //if (BlockState.is(what)) {
-  //  return BlockState.update(this, {
-  //    locals    : {$push: what.locals},
-  //    statements: {$push: what.statements}
-  //  });
-  //}
+
+  // we should concat blocks that have defined locals until now
+  if (BlockState.is(what) && this.statements.length === 0) {
+    return BlockState.update(this, {
+      locals    : {$push: what.locals},
+      statements: {$push: what.statements}
+    });
+  }
+
   return BlockState.update(this, {statements: {$push: [what]}});
 });
 
 BlockState.prototype.toJs = function(indent = "") {
-  let letStr = this.locals.map(l => `let ${l.name} = ${l.value.toJs(indent + "\t")};\n${indent}`).join("");
-  return `${indent}{\n${indent}${letStr}${this.statements.map(v => v.toJs(indent + "\t")).join(";\n" + indent)}\n${indent}}`
+  let line   = s => `${indent}\t${s};\n`;
+  let lines  = (ls) => ls.map(v => line(v)).join("");
+  let letStr = lines(
+      this.locals.map(l => `let ${l.name} = ${l.value.toJs(indent + "\t")}`));
+  let body   = lines(this.statements.map(toJs));
+  return `${indent}{\n${letStr}${body}${indent}}`;
 };
 
 // ### Sequence types
@@ -176,6 +196,15 @@ const _appendToElements = function(type) {
 SquareState.prototype.append = _appendToElements(SquareState);
 CurlyState.prototype.append  = _appendToElements(SquareState);
 
+function toJs(v) { return v.toJs(); }
+
+SquareState.prototype.toJs = function() {
+  return "[" + this.elements.map(toJs).join(", ") + "]";
+};
+
+CurlyState.prototype.toJs = function() {
+  return "{" + this.elements.map(toJs).join(", ") + "}";
+};
 // ### Paren: calls & specials
 
 const ParenState0 = T.struct({}, "ParenState/0");
@@ -194,6 +223,8 @@ ParenState0.prototype.append = function(what) {
         return LetStates[0]({});
       case "fn":
         return FnState0({});
+      case "def":
+        return DefState0({});
       default:
         break;
     }
@@ -209,8 +240,13 @@ ParenState2.prototype.append = function(what) {
   return ParenState2.update(this, {tail: {$push: [what]}});
 };
 
+ParenState1.prototype.toJs = function(indent = "\t") {
+  return `(${this.head.toJs()}())`;
+};
+
 ParenState2.prototype.toJs = function(indent = "\t") {
-  return `${this.head.toJs()}( ${this.tail.map(v => v.toJs(indent + "\t")).join(', ')} )`;
+  return `${this.head.toJs()}( ${this.tail.map(v => v.toJs(indent + "\t"))
+                                     .join(", ")} )`;
 };
 
 const LetStates = tupleBuilderTypes(
@@ -241,16 +277,35 @@ FnState0.prototype.append = function(what) {
 };
 
 FnState1.prototype.append = function(what) {
-  return FnState2({args: this.args, body:BlockState({}).append(what)})
+  return FnState2({args: this.args, body: BlockState({}).append(what)});
 };
 
 FnState2.prototype.append = function(what) {
-  return FnState2({args: this.args, body: this.body.append(what)})
+  return FnState2({args: this.args, body: this.body.append(what)});
 };
 
+FnState2.prototype.toJs = function(indent = "") {
+  return `function(${this.args.map(v => v.atom)
+                         .join(", ")})\n${this.body.toJs(indent + "\t")}`;
+};
 
-FnState2.prototype.toJs = function(indent="") {
-  return `function(${this.args.map(v => v.atom).join(", ")}) ${this.body.toJs(indent+"\t")}`
+const DefState0 = T.struct({}, "Def/0");
+const DefState1 = DefState0.extend({name: AtomState}, "Def/1");
+const DefState2 = DefState1.extend({value: State}, "Def/2");
+
+DefState0.prototype.append = function(what) {
+  if (!AtomState.is(what)) {
+    throw new Error("First argument for `def` must be an atom");
+  }
+  return DefState1({name: what});
+};
+
+DefState1.prototype.append = function(what) {
+  return DefState2({name: this.name, value: what});
+};
+
+DefState2.prototype.toJs = function(indent = "") {
+  return `const ${this.name.toJs()} = ${this.value.toJs(indent + "\t")}`;
 };
 
 //const FunctionStates = tupleBuilderTypes(
@@ -281,7 +336,8 @@ State.define(T.union([
                        KeyValuePair,
 
                        ParenState,
-                     FnState2]));
+                       FnState2,
+                       DefState2]));
 
 //
 function concatJsCode(sExprs) {
@@ -434,7 +490,6 @@ function concatJsCode(sExprs) {
   let parsedState = sExprs.map(preProcessRawTokens)
                           .reduce(expr, BlockState({}));
 
-  console.log(parsedState.toJs())
   return parsedState;
 
 }

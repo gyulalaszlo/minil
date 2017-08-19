@@ -36,7 +36,7 @@ function groupsOf(n, seq, includeIncomplete = true) {
 
 Program = a:AtomList { return a; }
 
-AtomList = WS* l:AtomListBase? { return l; }
+AtomList = WS* l:AtomListBase? { return l === null ? [] : l; }
 
 AtomListBase
 	= h:AtomListElement  t:(WS+ a:AtomListElement { return a; })* WS* {
