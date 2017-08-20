@@ -7,7 +7,7 @@
 
 
 
-(def beats-bits {:on-beat [1 0 0 0]
+(def beat-bits {:on-beat [1 0 0 0]
                  :syncopated [1 0 0]
                  :off-beat [0 0 1 0]
                 })
@@ -35,7 +35,7 @@
                                        {:velocity 0
                                         :chance 0}
                                        (get key rythm-config))
-                 (with-local beat-steps (get key beat-bits)
+                 (with-local beat-steps (get key bits-config)
                    (map (fn [old-step-value steps i]
                           (set-nth i old-step-value steps))
                         steps)))
@@ -50,3 +50,7 @@
              [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
              (Object.keys rythm-config))
   )
+
+
+(console.log
+  (create-rythm beat-bits kick-config))

@@ -1,6 +1,10 @@
 "use strict";
 
-const t = require('tcomb');
+const t = require("tcomb");
+
+const JsConvertible = t.interface({
+                                    toJs: t.func([t.String], t.String)
+                                  }, {strict: false});
 
 function toJs(v, indent = "") {
   try {
@@ -39,9 +43,10 @@ function _prefixLines(prefix, str, lineEnd = "\n") {
   const _prefixLine = l => (l.length ? (prefix + l) : l);
   return lines
       .map(_prefixLine)
-      .join(lineEnd);
+      .join(lineEnd)
+      .replace(/[\t ]+$/, '')
+      .replace(/^[\t ]+/, '');
 }
-
 
 module.exports = {
   toJs, manyToJs

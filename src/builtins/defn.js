@@ -39,8 +39,8 @@ DefnState3.prototype.append = function(what) {
 };
 
 DefnState3.prototype.toJs = function(indent = "") {
-  let argList = this.args.elements.map(toJs).join(", ");
-  let bodyStr = this.body.toJs(indent);
+  let argList = manyToJs(this.args.elements, {indent, joiner: ", "});
+  let bodyStr = toJs(this.body, indent);
   return `\n${indent}function ${this.name.toJs()}(${argList})${bodyStr}`;
 };
 

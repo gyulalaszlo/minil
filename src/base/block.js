@@ -3,6 +3,7 @@
 const t = require("tcomb");
 const {State, AppendToStateFn, AtomState}   = require("../base/statementTypes");
 const {toJs, manyToJs} = require('./toJs');
+const atomToJsSymbol = require('../base/atomToJsSymbol')
 
 const ReturnStatement = t.struct({returns: State}, "ReturnStatement");
 
@@ -71,13 +72,9 @@ BlockState.prototype.toJs = function(indent = "") {
   let line     = s => `\n${indent}\t${s};`;
   let lines    = (ls) => ls.map(v => line(v)).join("");
   let contents = lines([].concat(
-      this.locals.map(l => `let ${l.name} = ${l.value.toJs(indent + "\t")}`),
+      this.locals.map(l => `let ${atomToJsSymbol(l.name)} = ${l.value.toJs(indent + "\t")}`),
       body.map(v => toJs(v, indent + "\t"))
   ));
-  //let letStr   = lines(
-  //    this.locals.map(l => `let ${l.name} = ${l.value.toJs(indent +
-  // "\t")}`)); let body     = lines(this.statements.map(v => v.toJs(indent +
-  // "\t")));
   return `{${contents}\n${indent}}`;
 };
 

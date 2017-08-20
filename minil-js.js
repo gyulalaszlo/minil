@@ -34,7 +34,17 @@ program
 
 function compile_files(parser, fileList) {
 
-  function printParserError({location, expected, found, message}) {
+  function wrappedParse(filename, source) {
+    try {
+      console.log("[%s]", filename);
+      return parser.parse(source);
+    } catch (e) {
+      printParserError(e, filename, source);
+      throw e;
+    }
+  }
+
+  function printParserError({location, expected, found, message}, filename="<UNNAMED>", source="") {
     console.log("---- %s ----", message);
     console.log("  location = ", location);
     console.log("  expected = ", expected);
@@ -47,16 +57,24 @@ function compile_files(parser, fileList) {
     });
   }
 
+  function writeFile(source, fn, data) {
+    return new Promise((resolve, reject) => {
+      fs.writeFile(fn, data, "utf-8", function(err, val){
+        let bytes = data.length;
+        return err ? reject(err) : resolve({ok: { action: "written", bytes, source, compiled: fn}});
+      });
+    });
+  }
+
   return fileList.reduce(function(m, f) {
     return readFile(f)
-        .then(parser.parse)
-        .catch(printParserError)
+        //.then(parser.parse)
+        .then(src => wrappedParse(f, src))
         .then(concatJsCode)
         .then(toJs)
-        //.then(eval)
-        //.then(v => JSON.stringify(v, null, "  "))
+        .then(v => writeFile(f, f + ".js", v))
         .then(console.log)
-        .catch(console.error);
+        .catch( e => { console.error(e); process.exit(-12); });
   }, []);
 
 }
