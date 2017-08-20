@@ -73,6 +73,7 @@ BlockState.prototype.toJs = function(indent = "") {
   let lines    = (ls) => ls.map(v => line(v)).join("");
   let contents = lines([].concat(
       this.locals.map(l => `let ${atomToJsSymbol(l.name)} = ${l.value.toJs(indent + "\t")}`),
+      ["\n"],
       body.map(v => toJs(v, indent + "\t"))
   ));
   return `{${contents}\n${indent}}`;

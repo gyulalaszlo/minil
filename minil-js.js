@@ -16,6 +16,7 @@ const DefnStates       = require("./src/builtins/defn");
 const FnStates         = require("./src/builtins/fn");
 const Get              = require("./src/builtins/get");
 const NumericInfix     = require("./src/builtins/numeric-infix-operators");
+const Mutate           = require("./src/builtins/mutate");
 
 const {State, AtomState, StringState, IntState, PrimitiveStates} = StatementTypes;
 
@@ -99,7 +100,8 @@ const ParenStates = require("./src/base/applications")(
           "if"        : IfStates.empty,
           "get"       : Get.empty
         },
-        NumericInfix.empties
+        NumericInfix.empties,
+        Mutate.empties
     ));
 
 // ### State definition
@@ -116,7 +118,8 @@ State.define(t.union([
 
                        IfStates.union,
                        Get.union,
-                       NumericInfix.union
+                       NumericInfix.union,
+                       Mutate.union
                      ]));
 
 //
@@ -126,7 +129,11 @@ function concatJsCode(sExprs) {
     try {
       return _expr(state, expr);
     } catch (e) {
-      let debugValue   = JSON.stringify(expr);
+      //let debugValue   = function(expr) {
+      //  try { return JSON.stringify(expr); }
+      //  catch (e) { return expr.toString(); }
+      //}(expr);
+      let debugValue ="...";
       let MAX_JSON_LEN = 60;
       if (debugValue.length > MAX_JSON_LEN) {
         debugValue = debugValue.substr(0, MAX_JSON_LEN) + " ...";
@@ -140,6 +147,11 @@ function concatJsCode(sExprs) {
   // ## Wrapped stuff
   // single expression
   function _expr(state, e) {
+    if (Array.isArray(e)) {
+
+      console.log('----------')
+      e.forEach(v => console.log("==>", v));
+    }
     let {$type, $value} = Token.Token(e);
 
     switch ($type) {
@@ -179,7 +191,8 @@ function concatJsCode(sExprs) {
         expr(expr(SequenceStates.emptyKeyValuePair, value), key));
   }
 
-  return sExprs.map(Token.preProcessRawTokens)
-               .reduce(expr, BlockState({}));
+  return Token.preProcessRawTokens(sExprs) //.map(v => Token.preProcessRawTokens(v))
+              //.map(v => { console.log(v); return v; })
+              .reduce(expr, BlockState({}));
 
 }

@@ -99,8 +99,8 @@ Curly = '{' curly:AtomList '}' { return token("curly", groupsOf(2, curly, false)
 Atom = ![#0-9] atom:$AtomChar+ { return token("atom", atom); }
 Key = ':' key:$AtomChar+ { return token("key", key); }
 //Macro = '#' macro:$AtomChar+ { return { macro }; }
-String = '"' string:$[^"]* '"' { return token("string", string); }
-Integer = val:[0-9]+ { return token("integer", val.join("")); }
+String = '"' string:$[^"]* '"' { return token("string", JSON.parse('"' + string + '"')); }
+Integer = val:$[0-9]+ { return token("integer", val); }
 
 AtomChar = [^(){}\[\]:^\t\n\r,;" ]
 

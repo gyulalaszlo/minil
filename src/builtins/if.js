@@ -2,6 +2,8 @@
 
 const t = require('tcomb');
 const {State} = require('../base/statementTypes');
+const {BlockState} = require('../base/block');
+const {toJs, manyToJs} = require('../base/toJs');
 
 const If0 = t.struct({}, "If/0");
 const If1 = If0.extend({condition: State}, "If/1");
@@ -24,8 +26,8 @@ If2.prototype.append = function(what) {
 };
 
 If3.prototype.toJs = function(indent = "") {
-  return `if (${this.condition.toJs(indent)}) ${this.onTrue.toJs(
-      indent)} else ${this.onFalse.toJs(indent)}`;
+  return `if (${toJs(this.condition, indent)})\n${toJs(this.onTrue, 
+      indent)}\nelse ${toJs(this.onFalse, indent)}`;
 };
 
 module.exports = {

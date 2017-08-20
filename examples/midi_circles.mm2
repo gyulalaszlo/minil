@@ -1,5 +1,6 @@
-;;(def fs (require "fs"))
-
+(def fs (require "fs"))
+(def lame (require "lame"))
+(def encoder (require "wav-encoder"))
 
 (defn save-as-midi [file notes]
   (with-local data (notes.map (fn [note i] i))
@@ -51,6 +52,66 @@
              [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
              (Object.keys rythm-config)))
 
+; ;; Converts
+(defn to-human-bytes [bytes]
+      (let [KILO 1024
+            MEGA (* 1024 KILO)]
+        (if (< bytes KILO)
+          (+ bytes " Bytes")
+          (if (< bytes MEGA)
+            (+ (/ bytes KILO) " KiloBytes")
+            (+ (/ bytes MEGA) " MegaBytes")
+            ))))
 
-(console.log
-  (create-rythm beat-bits kick-config))
+
+(def ByteSize {:to-human-bytes to-human-bytes})
+
+; (console.log
+;   (create-rythm beat-bits kick-config))
+
+; (defn add-mp3-reader [decoder]
+;   (let [buffers []
+;         decoded-bytes 0]
+
+
+
+;     (defn on-mp3-format [format]
+;       (console.log "Format: %j" format))
+
+;     (defn on-mp3-data [buf]
+;       (set! decoded-bytes (+ decoded-bytes buf.length))
+;       (process.stdout.write (+ ". " (/ (Math.round (/ decoded-bytes (* 1024))) 1000) " Mb  \r"))
+;       )
+
+;     (defn on-mp3-end []
+;       (console.log "\n-> done ... %d bytes decoded" decoded-bytes))
+
+;     (defn on-mp3-id3v1 []
+;       (console.log "-> id3v1: " arguments))
+
+;     (defn on-mp3-id3v2 []
+;       (console.log "-> id3v2: " arguments))
+
+;     (decoder.on "format" on-mp3-format)
+;     (decoder.on "data" on-mp3-data)
+;     (decoder.on "end" on-mp3-end)
+;     (decoder.on "id3v1" on-mp3-id3v1)
+;     (decoder.on "id3v2" on-mp3-id3v2)
+
+;     decoder)
+;   )
+
+
+(defn load-mp3 [mp3-file]
+  (with-local input  (fs.createReadStream mp3-file))
+  ; (let [input (fs.createReadStream mp3-file)
+  ;       decoder (new lame.Decoder)]
+
+  ;   (add-mp3-reader decoder)
+  ;   (input.pipe decoder))
+  )
+
+(load-mp3
+
+
+  "/Users/t/Downloads/_torrent/Beatport Top 100 Downloads May 2017 [EDM RG]/01. Pleasurekraft - Tarantula (7 Year Itch Rework).mp3")
