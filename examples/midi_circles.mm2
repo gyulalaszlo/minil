@@ -1,0 +1,52 @@
+;;(def fs (require "fs"))
+
+
+(defn save-as-midi [file notes]
+  (with-local data (notes.map (fn [note i] i))
+    (fs.saveFileSync file data "utf-8")))
+
+
+
+(def beats-bits {:on-beat [1 0 0 0]
+                 :syncopated [1 0 0]
+                 :off-beat [0 0 1 0]
+                })
+
+(def kick-config {:on-beat {:velocity 120
+                            :chance 1}
+
+                  :syncopated {:velocity {:mean 120
+                                          :stdev 0}}
+
+                  })
+
+
+
+(defn fold-left [f init-value seq]
+  (seq.reduce (fn [m e i] (f e m i))
+                init-value))
+
+(defn map [f seq] (seq.map f))
+
+
+(defn create-rythm [bits-config rythm-config]
+  (fold-left (fn [key steps]
+               (with-local bit-setup (Object.assign
+                                       {:velocity 0
+                                        :chance 0}
+                                       (get key rythm-config))
+                 (with-local beat-steps (get key beat-bits)
+                   (map (fn [old-step-value steps i]
+                          (set-nth i old-step-value steps))
+                        steps)))
+               ; (console.log key)
+               ; (let [bit-setup (Object.assign
+               ;                   {:velocity 0
+               ;                    :chance 0}
+               ;                   (get key rythm-config))
+               ;       beat-steps (get key beat-bits)
+               ;       ]
+               )
+             [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+             (Object.keys rythm-config))
+  )
