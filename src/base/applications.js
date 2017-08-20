@@ -65,9 +65,10 @@ module.exports = function(emptyBuiltinsByNameMap = {}, macrosMap = {}) {
     return `${this.head.toJs(indent)}()`;
   };
 
-  ParenState2.prototype.toJs = function(indent = "\t") {
-    let args = manyToJs(this.tail, {indent: indent, joiner: ", "});
-    return toJs(this.head, indent) + "(" + args + ")";
+  ParenState2.prototype.toJs = function(opts={}) {
+    let newOpts = {indent: (opts.indent || 0) + 1, joiner: ", "};
+    let args = manyToJs(this.tail, newOpts);
+    return toJs(this.head, newOpts) + "(" + args + ")";
   };
 
   const ParenState = t.union([ParenState0, ParenState1, ParenState2]);

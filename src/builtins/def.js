@@ -3,6 +3,7 @@
 const t                  = require("tcomb");
 const {State, AtomState} = require("../base/statementTypes");
 const {BlockState}       = require("../base/block");
+const {toJs, manyToJs}   = require("../base/toJs");
 
 const DefState0 = t.struct({}, "Def/0");
 const DefState1 = DefState0.extend({name: AtomState}, "Def/1");
@@ -24,8 +25,13 @@ DefState2.prototype.append = function(what) {
       JSON.stringify(what) + "<<<<)");
 };
 
-DefState2.prototype.toJs = function(indent = "") {
-  return `\n${indent}const ${this.name.toJs()} = ${this.value.toJs(indent)}`;
+DefState2.prototype.toJs = function(opts={}) {
+  opts = Object.assign({indent: 1}, opts);
+  let nameJs    = toJs(this.name, opts);
+  let exportDef = ["module.exports.", nameJs, "=", nameJs];
+  let defLine   = ["const", nameJs, "=", toJs(this.value, opts)];
+  return [defLine, exportDef].map(l => l.join(" ")).join("\n");
+
 };
 
 module.exports = {

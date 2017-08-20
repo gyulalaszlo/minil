@@ -22,7 +22,6 @@ let AtomToken = t.refinement(Token, t => t.$type === "atom", "AtomToken");
 let PairToken = t.refinement(Token, t => t.$type === "pair", "PairToken");
 
 function preprocessUsingMacros(state, macros, t) {
-  console.log("preprocess =", state);
 
   if (ParenToken.is(t) && AtomToken.is(t.$value[0])) {
     let name       = t.$value[0].$value;
@@ -65,7 +64,6 @@ function preProcessRawTokenList({$type, $value}) {
 
 // Ensure all tokens are of proper type
 function preProcessRawToken(state, raw) {
-  console.log({state, raw});
   const macros = Object.assign({
                                  "paren"  : DEFAULT_MACROS,
                                  "square" : {},
@@ -77,19 +75,11 @@ function preProcessRawToken(state, raw) {
                                }, {});
 
   function witAppended(state, what) {
-    //console.log("witAppended", what)
-    //const preProcessed = preprocessUsingMacros(state, macros[what.$type],
-    // what);
     return preprocessUsingMacros(state, macros[what.$type], what);
-    //state.push(preProcessed);
-    //return state;
   }
 
   switch (raw.$type) {
     case "paren":
-      //return witAppended(state, preprocessUsingMacros(DEFAULT_MACROS,
-      //                                                preProcessRawTokenList(
-      //                                                    raw)));
     case "square":
     case "curly":
       return witAppended(state, preProcessRawTokenList(raw));

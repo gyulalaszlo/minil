@@ -61,15 +61,10 @@ SquareState.prototype.toJs = function(i) {
 };
 
 CurlyState.prototype.toJs = function(i) {
-  const localIndent = i + "\t";
-
-  //function entry(v) { return localIndent + v.toJs(localIndent + "\t"); }
-
   return "{" +
-      manyToJs(this.elements, {indent: i, joiner: `,`, prefix: `\n${i}\t`}) +
+      manyToJs(this.elements, {indent: 0, joiner: `,`, prefix: `\n`}) +
       "\n" +
       i + "}";
-  //this.elements.map(entry).join(",\n") + "\n" + i + "}";
 };
 
 module.exports = {

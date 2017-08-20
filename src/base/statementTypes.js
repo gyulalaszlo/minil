@@ -16,9 +16,16 @@ StringState.prototype.toJs = function() {
   return JSON.stringify(this.stringValue);
 };
 
+
+const kNO_EXIT      = "NoExit";
+const kRETURN       = "Return";
+const BlockExitType = t.enums.of([kNO_EXIT, kRETURN], "BlockExitType");
+
 module.exports = {
   State, AppendToStateFn,
   AtomState, StringState, IntState,
+
+  BlockExitType, kRETURN, kNO_EXIT,
 
   PrimitiveStates: { union: t.union([ AtomState, StringState, IntState ]) }
 };

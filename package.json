@@ -1,15 +1,17 @@
 {
   "name": "minil",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "",
-  "main": "index.js",
+  "main": "minil-js.js",
+  "bin": {
+    "minil-js": "./minil-js.js"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "check": "node minil-js.js examples/midi_circles.mm2 && (cd examples && node midi_circles.mm2.js)",
-    "check-test": "node minil-js.js examples/test.mm2"
+    "check": "node --stack-trace-limit=1000 minil-js.js examples/midi_circles.mm2 && (cd examples && node midi_circles.mm2.js)"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "Gyula Laszlo",
+  "license": "GPL2 (?)",
   "dependencies": {
     "commander": "^2.11.0",
     "pegjs": "^0.10.0",

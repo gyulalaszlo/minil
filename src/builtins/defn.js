@@ -5,7 +5,7 @@ const {State, AtomState}    = require("../base/statementTypes");
 const SequenceStates        = require("../base/sequences");
 const {BlockState, kRETURN} = require("../base/block");
 
-const {toJs, manyToJs} = require("../base/toJs");
+const {toJs, manyToJs, OutToken} = require("../base/toJs");
 
 //// #### `(defn <name> ...)`
 //
@@ -38,10 +38,29 @@ DefnState3.prototype.append = function(what) {
   return DefnState3.update(this, {body: {$set: this.body.append(what)}});
 };
 
-DefnState3.prototype.toJs = function(indent = "") {
-  let argList = manyToJs(this.args.elements, {indent, joiner: ", "});
-  let bodyStr = toJs(this.body, indent);
-  return `\n${indent}function ${this.name.toJs()}(${argList})${bodyStr}`;
+const Defn3Template = OutToken.template(
+    [
+      {text: "function", tags: ["keyword"]},
+      {path: ["name"]},
+      {text: "(", tags: ["paren-open"]},
+      {path: ["args", "elemenents"]},
+      {text: ")", tags: ["paren-close"]},
+      {path: ["body"]}
+    ]);
+
+DefnState3.prototype.toJs = function(opts) {
+  opts        = Object.assign(opts, {joiner: ","});
+  let argList = manyToJs(this.args.elements, opts);
+  let bodyStr = toJs(this.body, opts);
+  let o = Defn3Template(this)
+  //let o       = OutToken.concat([
+  //                                {tags: [], text: "function"}
+  //                                //...([].concat(toJs(this.name, opts),
+  //                                //              argList,
+  //                                //              bodyStr))
+  //
+  //                              ], OutToken.empty);
+  return `\nfunction ${toJs(this.name, opts)}(${argList})${bodyStr}`;
 };
 
 module.exports = {

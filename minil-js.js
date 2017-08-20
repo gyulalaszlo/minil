@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const pegjs   = require("pegjs");
 const program = require("commander");
 const fs      = require("fs");
