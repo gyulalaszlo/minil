@@ -4,7 +4,7 @@ const t                  = require("tcomb");
 const {State, AtomState} = require("../base/statementTypes");
 const {toJs, manyToJs}   = require("./toJs");
 
-module.exports = function(emptyBuiltinsByNameMap = {}) {
+module.exports = function(emptyBuiltinsByNameMap = {}, macrosMap = {}) {
   const ParenState0 = t.struct({}, "ParenState/0");
   const ParenState1 = ParenState0.extend({head: State}, "ParenState/1");
   const ParenState2 = ParenState1.extend({tail: t.list(State)},
@@ -20,6 +20,12 @@ module.exports = function(emptyBuiltinsByNameMap = {}) {
 
       if (maybeBuiltin) {
         return maybeBuiltin;
+      }
+
+      let maybeMacro = macrosMap[name];
+
+      if (maybeMacro) {
+        return maybeMacro();
       }
 
       //switch (what.atom) {
@@ -64,8 +70,17 @@ module.exports = function(emptyBuiltinsByNameMap = {}) {
     return toJs(this.head, indent) + "(" + args + ")";
   };
 
+  const ParenState = t.union([ParenState0, ParenState1, ParenState2]);
+
+  function processToken(state, tok) {
+
+
+  }
+
   return {
-    empty: ParenState0({}),
-    union: t.union([ParenState0, ParenState1, ParenState2])
+    empty       : ParenState0({}),
+    union       : ParenState,
+    //processToken: t.func([State, Tokens.ParenToken], ParenState)
+    //               .of(processToken)
   };
 };

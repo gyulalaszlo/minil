@@ -19,7 +19,7 @@ function infixOperator(name, jsForm) {
   };
 
   T.prototype.toJs = function(i) {
-    return manyToJs(this.args, {indent: i, joiner: jsForm});
+    return '(' + manyToJs(this.args, {indent: i, joiner: ' ' + jsForm + ' '}) + ')';
   };
 
   return {
