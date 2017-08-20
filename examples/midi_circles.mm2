@@ -13,10 +13,11 @@
                 })
 
 (def kick-config {:on-beat {:velocity 120
-                            :chance 1}
+                            :chance 100}
 
                   :syncopated {:velocity {:mean 120
-                                          :stdev 0}}
+                                          :stdev 0}
+                               :chance 20}
 
                   })
 
@@ -36,20 +37,13 @@
                                         :chance 0}
                                        (get key rythm-config))
                  (with-local beat-steps (get key bits-config)
-                   (map (fn [old-step-value steps i]
-                          (set-nth i old-step-value steps))
-                        steps)))
-               ; (console.log key)
-               ; (let [bit-setup (Object.assign
-               ;                   {:velocity 0
-               ;                    :chance 0}
-               ;                   (get key rythm-config))
-               ;       beat-steps (get key beat-bits)
-               ;       ]
-               )
+                   (map (fn [old-step-value i]
+                          (+ old-step-value (* (get (% i beat-steps.length) beat-steps)
+                                               (/ bit-setup.chance 100)
+                                               (Math.random))))
+                        steps))))
              [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
-             (Object.keys rythm-config))
-  )
+             (Object.keys rythm-config)))
 
 
 (console.log

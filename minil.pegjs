@@ -102,6 +102,6 @@ Key = ':' key:$AtomChar+ { return token("key", key); }
 String = '"' string:$[^"]* '"' { return token("string", string); }
 Integer = val:[0-9]+ { return token("integer", val.join("")); }
 
-AtomChar = [^(){}\[\]:^\t\n\r/,;" ]
+AtomChar = [^(){}\[\]:^\t\n\r,;" ]
 
 WS = [\t\r\n, ]

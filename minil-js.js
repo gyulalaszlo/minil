@@ -14,6 +14,8 @@ const IfStates         = require("./src/builtins/if");
 const DefStates        = require("./src/builtins/def");
 const DefnStates       = require("./src/builtins/defn");
 const FnStates         = require("./src/builtins/fn");
+const Get              = require("./src/builtins/get");
+const NumericInfix     = require("./src/builtins/numeric-infix-operators");
 
 const {State, AtomState, StringState, IntState, PrimitiveStates} = StatementTypes;
 
@@ -44,7 +46,9 @@ function compile_files(parser, fileList) {
     }
   }
 
-  function printParserError({location, expected, found, message}, filename="<UNNAMED>", source="") {
+  function printParserError(
+      {location, expected, found, message}, filename = "<UNNAMED>", source = "")
+  {
     console.log("---- %s ----", message);
     console.log("  location = ", location);
     console.log("  expected = ", expected);
@@ -59,22 +63,26 @@ function compile_files(parser, fileList) {
 
   function writeFile(source, fn, data) {
     return new Promise((resolve, reject) => {
-      fs.writeFile(fn, data, "utf-8", function(err, val){
+      fs.writeFile(fn, data, "utf-8", function(err, val) {
         let bytes = data.length;
-        return err ? reject(err) : resolve({ok: { action: "written", bytes, source, compiled: fn}});
+        return err ? reject(err) : resolve(
+            {ok: {action: "written", bytes, source, compiled: fn}});
       });
     });
   }
 
   return fileList.reduce(function(m, f) {
     return readFile(f)
-        //.then(parser.parse)
+    //.then(parser.parse)
         .then(src => wrappedParse(f, src))
         .then(concatJsCode)
         .then(toJs)
         .then(v => writeFile(f, f + ".js", v))
         .then(console.log)
-        .catch( e => { console.error(e); process.exit(-12); });
+        .catch(e => {
+          console.error(e);
+          process.exit(-12);
+        });
   }, []);
 
 }
@@ -82,13 +90,17 @@ function compile_files(parser, fileList) {
 // ### Paren: calls & specials
 
 const ParenStates = require("./src/base/applications")(
-    {
-      "with-local": LetStates[0]({}),
-      "fn"        : FnStates.empty,
-      "def"       : DefStates.empty,
-      "defn"      : DefnStates.empty,
-      "if"        : IfStates.empty
-    });
+    Object.assign(
+        {
+          "with-local": LetStates[0]({}),
+          "fn"        : FnStates.empty,
+          "def"       : DefStates.empty,
+          "defn"      : DefnStates.empty,
+          "if"        : IfStates.empty,
+          "get"       : Get.empty
+        },
+        NumericInfix.empties
+    ));
 
 // ### State definition
 
@@ -102,15 +114,32 @@ State.define(t.union([
                        DefStates.union,
                        DefnStates.union,
 
-                       IfStates.union
+                       IfStates.union,
+                       Get.union,
+                       NumericInfix.union
                      ]));
 
 //
 function concatJsCode(sExprs) {
 
+  function expr(state, expr) {
+    try {
+      return _expr(state, expr);
+    } catch (e) {
+      let debugValue   = JSON.stringify(expr);
+      let MAX_JSON_LEN = 60;
+      if (debugValue.length > MAX_JSON_LEN) {
+        debugValue = debugValue.substr(0, MAX_JSON_LEN) + " ...";
+      }
+      let valCons = t.getTypeName(state.__proto__.constructor);
+      e.message += `\n\t-> expr() \`${valCons}\`: ${debugValue}`;
+      throw e;
+    }
+  }
+
   // ## Wrapped stuff
   // single expression
-  function expr(state, e) {
+  function _expr(state, e) {
     let {$type, $value} = Token.Token(e);
 
     switch ($type) {
